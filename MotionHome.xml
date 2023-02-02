@@ -1,0 +1,367 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<!-- 
+     author: Dima Wedel (dwl): dwedel@jetter.de
+     date: 16 nov 2016
+     version: 1.0
+-->
+<StateMachine xmlns="http://www.demo.com"
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+xsi:schemaLocation="http://www.demo.com StateMachine.xsd"
+Name="MotionHomeSM" Namespace="MotionHome" GenerateForChange="true">
+  <Include>src/OS.h</Include>
+  <Include>src/OS_Queue.h</Include>
+  <ForwardDeclaration>class BlaClass</ForwardDeclaration>
+  <ForwardDeclaration>struct qqq</ForwardDeclaration>
+  <Events>
+    <Event>CYCLIC_EVENT</Event>
+    <Event>DRIVE_READ_DATA</Event>
+    <Event>PARAM_UPDATE_HOMING</Event>
+    <Event>AXIS_USER_REF_START</Event>
+    <Event>AXIS_USER_REF_SET</Event>
+    <Event>AXIS_USER_REF_HALT</Event>
+    <Event>AXIS_STOPPED</Event>
+    <Event>CAM_DETECTED</Event>
+    <Event>K0_DETECTED</Event>
+  </Events>
+  <Enum EnumName="KIND_REFERENCE_MARK" Comment="options for reference mark">
+    <EnumEntry>UNDEFINED_REF_MARK</EnumEntry>
+    <EnumEntry>ZERO_MARK</EnumEntry>
+    <EnumEntry>SLOPE</EnumEntry>
+  </Enum>
+  <Enum EnumName="NUMBER_PHASE" Comment="describes how many phases should the motion home take ">
+    <EnumEntry>UNDEFINED_PHASE_NUMBER</EnumEntry>
+    <EnumEntry>ONE</EnumEntry>
+    <EnumEntry>TWO</EnumEntry>
+  </Enum>
+  <Enum EnumName="SLOPE_POSITION_TO_SEARCH" Comment="What is the current slope position to search">
+    <EnumEntry>UNDEFINED_SLOPE_POSITION</EnumEntry>
+    <EnumEntry>NO_SLOPE</EnumEntry>
+    <EnumEntry>REF_SWITCH_LEFT</EnumEntry>
+    <EnumEntry>REF_SWITCH_RIGHT</EnumEntry>
+    <EnumEntry>NEGATIVE_SWITCH</EnumEntry>
+    <EnumEntry>POSITIVE_SWITCH</EnumEntry>
+  </Enum>
+  <Enum EnumName="KIND_OF_SLOPE" Comment="What is the current slope to search">
+    <EnumEntry>UNDEFINED_KIND_OF_SLOPE</EnumEntry>
+    <EnumEntry>HIGH_LEFT</EnumEntry>
+    <EnumEntry>LOW_LEFT</EnumEntry>
+    <EnumEntry>HIGH_RIGHT</EnumEntry>
+    <EnumEntry>LOW_RIGHT</EnumEntry>
+    <EnumEntry>HIGH_NEGATIVE</EnumEntry>
+    <EnumEntry>HIGH_POSITIVE</EnumEntry>
+    <EnumEntry>LOW_NEGATIVE</EnumEntry>
+    <EnumEntry>LOW_POSITIVE</EnumEntry>
+  </Enum>
+  <Enum EnumName="SWITCH_STATE" Comment="describes the axis position in relation to switch">
+    <EnumEntry>UNDEFINED_SWITCH_STATE</EnumEntry>
+    <EnumEntry>OFF_SWITCH</EnumEntry>
+    <EnumEntry>ON_MIDDLE_SWITCH</EnumEntry>
+    <EnumEntry>ON_NEGATIVE_SWITCH</EnumEntry>
+    <EnumEntry>ON_POSITIVE_SWITCH</EnumEntry>
+  </Enum>
+  <Enum EnumName="ERROR_TYPE" Comment="which error could happen">
+    <EnumEntry>UNDEFINED_ERROR_TYPE</EnumEntry>
+  </Enum>
+  <StartState>WORKING</StartState>
+  <State Name="WORKING" SuperState="ROOT" StartSubState="START_FINISH" WithHistory="false" Comment="super state for working part">
+    <Dispatch>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="ERROR"/>
+        <Condition Name="isErrorOccured"/>
+      </Subroutine>
+    </Dispatch>
+  </State>
+  <State Name="START_FINISH" SuperState="WORKING" EnterRoutine="resetMember" WithHistory="false" Comment="the SM starts and ends here">
+    <Dispatch>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="EXTERNAL"/>
+        <Condition Name="isExternalAxisAndMotionHomeActive"/>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="MOTION_HOME_ONGOING">
+          <Routine Name="startMotionHome"/>
+        </Transition>
+        <Condition Name="isMotionHomeActiveAndAxisHold"/>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="START_FINISH">
+          <Routine Name="processHoldOn"/>
+        </Transition>
+        <Condition Name="isMotionHomeActiveButAxisInMotion"/>
+      </Subroutine>
+      <Subroutine EventId="AXIS_USER_REF_START">
+        <Transition Destination="START_FINISH">
+          <Routine Name="processStartMotionHome"/>
+        </Transition>
+      </Subroutine>
+      <Subroutine EventId="AXIS_USER_REF_SET">
+        <Transition Destination="START_FINISH">
+          <Routine Name="processSetMotionHome"/>
+        </Transition>
+      </Subroutine>
+      <Subroutine EventId="PARAM_UPDATE_HOMING">
+        <Transition Destination="START_FINISH">
+          <Routine Name="updateParameters"/>
+        </Transition>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="SEND_REFERENCE_DATA_TO_DRIVE"/>
+        <Condition Name="isSetReferenceActive"/>
+      </Subroutine>
+    </Dispatch>
+    <MemberData Name="isStarted" Type="bool" InitialValue="false" Comment="is motion home started"/>
+    <MemberData Name="isSet" Type="bool" InitialValue="false" Comment="is motion home (already) set"/>
+    <MemberData Name="isExternal" Type="bool" InitialValue="false" Comment="is this an external axis?"/>
+  </State>
+  <State Name="MOTION_HOME_ONGOING" SuperState="WORKING" StartSubState="INIT" EnterRoutine="reset" WithHistory="false" Comment="handle all situations during running motion home">
+    <Dispatch>
+      <Subroutine EventId="AXIS_USER_REF_HALT">
+        <Transition Destination="MOTION_HOME_ONGOING">
+          <Routine Name="processHalt"/>
+        </Transition>
+      </Subroutine>
+      <Subroutine EventId="AXIS_STOPPED">
+        <Transition Destination="MOTION_HOME_ONGOING">
+          <Routine Name="processAxisStopped"/>
+        </Transition>
+      </Subroutine>
+    </Dispatch>
+  </State>
+  <State Name="INIT" SuperState="MOTION_HOME_ONGOING" EnterRoutine="saveValues" WithHistory="false" Comment="prepare everything to motion home procedure">
+    <Dispatch>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="SEARCH_FOR_ZM">
+          <Routine Name="startVzm"/>
+        </Transition>
+        <Condition Name="isZmOnly"/>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="START_SLOW_MOTION"/>
+        <Condition Name="isOnePhase"/>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="START_OUTSIDE_REF_SWITCH">
+          <Routine Name="setCorrectSlope"/>
+        </Transition>
+        <Condition Name="isOffSwitchAndTwoPhase"/>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="START_ON_SWITCH"/>
+        <Condition Name="isOnSwitchAndTwoPhase"/>
+      </Subroutine>
+    </Dispatch>
+  </State>
+  <State Name="START_OUTSIDE_REF_SWITCH" SuperState="MOTION_HOME_ONGOING" EnterRoutine="startVref" WithHistory="false" Comment="if  start mh outside of switch (usual case)">
+    <Dispatch>
+      <Subroutine EventId="CAM_DETECTED">
+        <Transition Destination="START_OUTSIDE_REF_SWITCH">
+          <Routine Name="processCamDetected"/>
+        </Transition>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="CORRECT_SWITCH_FAST_LOW_HIGH">
+          <Routine Name="setCorrectNextSlope"/>
+        </Transition>
+        <Condition Name="isCorrectSwitch"/>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="END_SWITCH_LOW_HIGH">
+          <Routine Name="changeDirection"/>
+        </Transition>
+        <Condition Name="isMiddleSwitchButFoundHighSlopeForCorrectEndSwitch"/>
+      </Subroutine>
+    </Dispatch>
+  </State>
+  <State Name="START_ON_SWITCH" SuperState="MOTION_HOME_ONGOING" EnterRoutine="checkError" WithHistory="false" Comment="hgsi">
+    <Dispatch>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="START_OUTSIDE_REF_SWITCH"/>
+        <Condition Name="isWrongSwitch"/>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="CORRECT_SWITCH_FAST_LOW_HIGH">
+          <Routine Name="setCorrectNextSlope"/>
+        </Transition>
+        <Condition Name="isCorrectSwitch"/>
+      </Subroutine>
+    </Dispatch>
+  </State>
+  <State Name="END_SWITCH_LOW_HIGH" SuperState="MOTION_HOME_ONGOING" EnterRoutine="startVref" WithHistory="false" Comment="dhdhd">
+    <Dispatch>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="END_SWITCH_LOW_HIGH">
+          <Routine Name="setError"/>
+        </Transition>
+        <Condition Name="hasFoundAnotherEndSwitch"/>
+      </Subroutine>
+      <Subroutine EventId="CAM_DETECTED">
+        <Transition Destination="END_SWITCH_LOW_HIGH">
+          <Routine Name="processCamDetected"/>
+        </Transition>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="CORRECT_SWITCH_HIGH_LOW"/>
+        <Condition Name="hasFoundCorrectSlope"/>
+      </Subroutine>
+    </Dispatch>
+  </State>
+  <State Name="CORRECT_SWITCH_FAST_LOW_HIGH" SuperState="MOTION_HOME_ONGOING" EnterRoutine="startWithVzmAndChangeDirection" WithHistory="false"  Comment="fjboidbh">
+    <Dispatch>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="CORRECT_SWITCH_FAST_LOW_HIGH">
+          <Routine Name="setError"/>
+        </Transition>
+        <Condition Name="notFoundCorrectSlope"/>
+      </Subroutine>
+      <Subroutine EventId="CAM_DETECTED">
+        <Transition Destination="CORRECT_SWITCH_FAST_LOW_HIGH">
+          <Routine Name="processCamDetected"/>
+        </Transition>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="CORRECT_SWITCH_HIGH_LOW"/>
+        <Condition Name="foundCorrectSlope"/>
+      </Subroutine>
+    </Dispatch>
+  </State>
+  <State Name="START_SLOW_MOTION" SuperState="MOTION_HOME_ONGOING" EnterRoutine="startVzm" WithHistory="false" Comment="slow motion to find reference">
+    <Dispatch>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="START_SLOW_MOTION">
+          <Routine Name="setError"/>
+        </Transition>
+        <Condition Name="notFoundCorrectSlope"/>
+      </Subroutine>
+      <Subroutine EventId="CAM_DETECTED">
+        <Transition Destination="START_SLOW_MOTION">
+          <Routine Name="processCamDetected"/>
+        </Transition>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="CORRECT_SWITCH_SLOW_LOW_HIGH"/>
+        <Condition Name="foundCorrectSlope"/>
+      </Subroutine>
+    </Dispatch>
+  </State>
+  <State Name="CORRECT_SWITCH_HIGH_LOW" SuperState="MOTION_HOME_ONGOING" WithHistory="false" Comment="fhdth">
+    <Dispatch>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="START_SLOW_MOTION">
+          <Routine Name="changeDirection"/>
+        </Transition>
+        <Condition Name="isMiddleSwitch"/>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="SEARCH_FOR_ZM"/>
+        <Condition Name="isZmAndEndSwitch"/>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="SET_REFERENCE_POINT"/>
+        <Condition Name="isNotZmAndEndSwitch"/>
+      </Subroutine>
+    </Dispatch>
+  </State>
+  <State Name="CORRECT_SWITCH_SLOW_LOW_HIGH" SuperState="MOTION_HOME_ONGOING" WithHistory="false" Comment="sgrdsghadr">
+    <Dispatch>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="SEARCH_FOR_ZM"/>
+        <Condition Name="isZmActive"/>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="SET_REFERENCE_POINT"/>
+        <Condition Name="isZmNotActive"/>
+      </Subroutine>
+    </Dispatch>
+  </State>
+  <State Name="SEARCH_FOR_ZM" SuperState="MOTION_HOME_ONGOING" EnterRoutine="activateDetectionOfZm" WithHistory="false" Comment="search for Zm">
+    <Dispatch>
+      <Subroutine EventId="AXIS_STOPPED">
+        <Transition Destination="SEARCH_FOR_ZM">
+          <Routine Name="setError"/>
+        </Transition>
+      </Subroutine>
+      <Subroutine EventId="K0_DETECTED">
+        <Transition Destination="SEARCH_FOR_ZM">
+          <Routine Name="processZmSignal"/>
+        </Transition>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="SET_REFERENCE_POINT"/>
+        <Condition Name="isK0Detected"/>
+      </Subroutine>
+    </Dispatch>
+  </State>
+  <State Name="SET_REFERENCE_POINT" SuperState="MOTION_HOME_ONGOING" EnterRoutine="setReference" WithHistory="false" Comment="set reference">
+    <Dispatch>
+      <Subroutine EventId="AXIS_STOPPED">
+        <Transition Destination="SET_REFERENCE_POINT">
+          <Routine Name="setError"/>
+        </Transition>
+        <Condition Name="isNotComplete"/>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="SEND_REFERENCE_DATA_TO_DRIVE">
+          <Routine Name="setReference"/>
+        </Transition>
+        <Condition Name="isComplete"/>
+      </Subroutine>
+    </Dispatch>
+  </State>
+  <State Name="EXTERNAL" SuperState="WORKING" EnterRoutine="saveValues" WithHistory="false" Comment="Satte for handling motion home of external axis">
+    <Dispatch>
+      <Subroutine EventId="DRIVE_READ_DATA">
+        <Transition Destination="EXTERNAL">
+          <Routine Name="readDriveData"/>
+        </Transition>
+      </Subroutine>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="START_FINISH">
+          <Routine Name="reportEndOfMotionHomeExternal"/>
+        </Transition>
+        <Condition Name="isComplete"/>
+      </Subroutine>
+    </Dispatch>
+  </State>
+  <State Name="SEND_REFERENCE_DATA_TO_DRIVE" SuperState="WORKING" EnterRoutine="sendReferenceDataToDrive" WithHistory="false" Comment="communication with real hardware drive">
+    <Dispatch>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="START_FINISH">
+          <Routine Name="reportEndOfMotionHome"/>
+        </Transition>
+        <Condition Name="hasDriveAnswered"/>
+      </Subroutine>      
+    </Dispatch>
+  </State>
+  <State Name="ERROR" SuperState="ROOT" EnterRoutine="processError" WithHistory="false" Comment="Error handling">
+    <Dispatch>
+      <Subroutine EventId="CYCLIC_EVENT">
+        <Transition Destination="WORKING"/>
+      </Subroutine>
+    </Dispatch>
+  </State>
+  <MemberData Name="isCurrentDirectionPositive" Type="bool" InitialValue="false" Comment="moves the axis in positive direction currently"/>
+  <MemberData Name="isStartDirectionPositive" Type="bool" InitialValue="false" Comment="moves the axis in positive direction at the begin"/>
+  <MemberData Name="hasReferenceSwitch" Type="bool" InitialValue="false" Comment="is there a reference switch (middle)"/>
+  <MemberData Name="hasEndSwitches" Type="bool" InitialValue="false" Comment="are there switches at the ends"/>
+  <MemberData Name="kindOfReferenceMark" Type="KIND_REFERENCE_MARK" InitialValue="UNDEFINED_REF_MARK" Comment="current mark"/>
+  <MemberData Name="numberOfPhases" Type="NUMBER_PHASE" InitialValue="UNDEFINED_PHASE_NUMBER" Comment="number of reference phases"/>
+  <MemberData Name="acceleration" Type="double" InitialValue="0.0" Comment="max acceleration of axis"/>
+  <MemberData Name="speedDuringSearchForSwitch" Type="double" InitialValue="0.0" Comment="speed during searching for switch"/>
+  <MemberData Name="maxDistanceSearchingForSwitch" Type="double" InitialValue="0.0" Comment="maximal distance searching for switch"/>
+  <MemberData Name="speedDuringSearchForReference" Type="double" InitialValue="0.0" Comment="speed during searching for reference"/>
+  <MemberData Name="maxDistanceSearchingForReference" Type="double" InitialValue="0.0" Comment="maximal distance searching for reference"/>
+  <MemberData Name="nullPointDistance" Type="double" InitialValue="0.0" Comment="distance to null point "/>
+  <MemberData Name="nullPointPosition" Type="double" InitialValue="0.0" Comment="position to null point"/>
+  <MemberData Name="referenceMark" Type="double" InitialValue="DOUBLE.MAX_VALUE" Comment="yyy"/>
+  <MemberData Name="isComplete" Type="bool" InitialValue="false" Comment="is motion home completed"/>
+  <MemberData Name="isError" Type="bool" InitialValue="false" Comment="error during motion home occured"/>
+  <MemberData Name="errorType" Type="ERROR_TYPE" InitialValue="UNDEFINED_ERROR_TYPE" Comment="which error is occured"/>
+  <MemberData Name="isMotionHomeStarted" Type="bool" InitialValue="false" Comment="is motion home started"/>
+  <MemberData Name="lastKindOfSlope" Type="KIND_OF_SLOPE" InitialValue="UNDEFINED_KIND_OF_SLOPE" Comment="last kind of slope"/>
+  <MemberData Name="isMotionHomeSet" Type="bool" InitialValue="false" Comment="is motion home set"/>
+  <MemberData Name="isUpdateOfMotionHomeDataDesired" Type="bool" InitialValue="false" Comment="is update of motion home data desired"/>
+  <MemberData Name="isUserHalt" Type="bool" InitialValue="false" Comment="is user halt"/>
+  <MemberData Name="isAxisStopped" Type="bool" InitialValue="false" Comment="is axis stopped"/>
+  <MemberData Name="isK0Detected" Type="bool" InitialValue="false" Comment="is K0 detected"/>
+  <MemberData Name="isCamDetected" Type="bool" InitialValue="false" Comment="is cam detected"/>
+</StateMachine>

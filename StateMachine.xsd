@@ -1,0 +1,167 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!-- 
+     author: Dima Wedel (dwl): dwedel@jetter.de
+     date: 26.01.2016
+     version: 1.0
+     
+     State machine for Motion Control (MC)
+-->
+<xs:schema xmlns="http://www.demo.com"
+    xmlns:xs="http://www.w3.org/2001/XMLSchema"
+    xmlns:mstns="http://www.demo.com"
+    targetNamespace="http://www.demo.com"
+    elementFormDefault="qualified" version="1.0" id="demo">
+  
+  <xs:annotation>
+    <xs:documentation xml:lang="DE" />
+  </xs:annotation>
+
+  <xs:element name="StateMachine" type="StateMachineType" />
+  
+  <xs:complexType name="StateMachineType">
+    <xs:sequence>
+      <xs:element name="Include" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="ForwardDeclaration" type="ForwardDeclarationType" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="Events" type="EventIdListType"/>
+      <xs:element name="Enum" type="EnumType" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="StartState" type="StateIdType"/>
+      <xs:element name="State" type="StateType" minOccurs="2" maxOccurs="unbounded"/>
+      <!--
+            All member data and functions are private. 
+            "protected" makes no sence because there musn't be derivation of it.
+            "public" is forbidden because otherwise th people will define it that way but this 
+            is the wrong way to use FSM.
+      -->
+      <xs:element name="MemberFunction" type="FunctionType" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="MemberData" type="DataTypeMember" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="Name" type="xs:string" use="required" />
+    <xs:attribute name="Namespace" type="xs:string" use="required" />
+    <xs:attribute name="GenerateForChange" type="xs:boolean" use="required" />
+  </xs:complexType>
+
+  <xs:simpleType name="ForwardDeclarationType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="struct [a-zA-Z]{1}([a-zA-Z0-9_])*|class [a-zA-Z]{1}([a-zA-Z0-9_])*"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="EventIdListType">
+    <xs:sequence>
+      <xs:element name="Event" type="EventIdType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  
+  <xs:simpleType name="EventIdType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[A-Z]+[A-Z0-9_]*" />
+    </xs:restriction>
+  </xs:simpleType>
+  
+  <xs:complexType name="EnumType">
+    <xs:sequence>
+      <xs:element name="EnumEntry" type="EnumEntryType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="EnumName" type="xs:string" use="required" />
+    <xs:attribute name="Comment" type="xs:string" use="optional" />
+  </xs:complexType>
+
+  <xs:simpleType name="EnumEntryType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[A-Z]+[A-Z0-9_]*" />
+    </xs:restriction>
+  </xs:simpleType>
+  
+  <xs:simpleType name="StateIdType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[A-Z]+[A-Z0-9_]*" />
+    </xs:restriction>
+  </xs:simpleType>
+  
+  <xs:complexType name="StateType">
+    <xs:sequence>
+      <xs:element name="Dispatch" type="DispatchFunctionType" minOccurs="1" maxOccurs="1"/>
+      <!--
+            All member data and functions are private. 
+            "protected" makes no sence because there musn't be derivation of it.
+            "public" is forbidden because otherwise th people will define it that way but this 
+            is the wrong way to use FSM.
+      -->
+      <xs:element name="MemberFunction" type="FunctionType" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="MemberData" type="DataTypeMember" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="Name" type="StateIdType" use="required" />
+    <xs:attribute name="Comment" type="xs:string" use="optional" />
+    <xs:attribute name="EnterRoutine" type="xs:string" use="optional" />
+    <xs:attribute name="LeaveRoutine" type="xs:string" use="optional" />
+    <xs:attribute name="SuperState" type="StateIdType" use="required" />
+    <xs:attribute name="StartSubState" type="StateIdType" use="optional" />
+    <xs:attribute name="WithHistory" type="xs:boolean" use="required" />
+  </xs:complexType>
+  
+  <xs:complexType name="DispatchFunctionType">
+    <xs:sequence>
+      <xs:element name="Subroutine" type="SubroutineType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  
+  <xs:complexType name="SubroutineType">
+    <xs:sequence>
+      <xs:element name="Transition" type="TransitionType" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Condition" type="DecisionFuncTypeWithoutParams" minOccurs="0" maxOccurs="1"/>
+    </xs:sequence>
+    <xs:attribute name="EventId" type="EventIdType" use="required" />
+  </xs:complexType>
+
+  <xs:complexType name="TransitionType">
+    <xs:sequence>
+      <xs:element name="Routine" type="ProcedureTypeWithoutParams" minOccurs="0" maxOccurs="1" />
+    </xs:sequence>
+    <xs:attribute name="Destination" type="StateIdType" use="required" />
+  </xs:complexType>
+
+  <xs:complexType name="FunctionType">
+    <xs:sequence>
+      <xs:element name="Parameter" type="DataTypeParameter" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="ReturnType" type="xs:string" use="required" />
+    <xs:attribute name="Name" type="xs:string" use="required" />
+    <xs:attribute name="IsConst" type="xs:boolean" use="required" />
+    <xs:attribute name="KindOfVisibility" type="VisibilityType" use="required" />
+    <xs:attribute name="Comment" type="xs:string" use="optional" />
+  </xs:complexType>
+
+  <xs:simpleType name="VisibilityType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="public"/>
+      <xs:enumeration value="protected"/>
+      <xs:enumeration value="private"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="DataTypeMember">
+    <xs:sequence/>
+    <xs:attribute name="Name" type="xs:string" use="required" />
+    <xs:attribute name="Type" type="xs:string" use="required" />
+    <xs:attribute name="InitialValue" type="xs:string" use="required" />
+    <xs:attribute name="Comment" type="xs:string" use="optional" />
+  </xs:complexType>
+
+  <xs:complexType name="DataTypeParameter">
+    <xs:sequence/>
+    <xs:attribute name="Name" type="xs:string" use="required" />
+    <xs:attribute name="Type" type="xs:string" use="required" />
+  </xs:complexType>
+
+  <xs:complexType name="ProcedureTypeWithoutParams">
+    <xs:sequence/>
+    <xs:attribute name="Name" type="xs:string" use="required" />
+  </xs:complexType>
+
+  <xs:complexType name="DecisionFuncTypeWithoutParams">
+    <xs:sequence/>
+    <xs:attribute name="Name" type="xs:string" use="required" />
+  </xs:complexType>
+
+	
+</xs:schema>
